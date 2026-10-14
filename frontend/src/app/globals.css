@@ -1,0 +1,99 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Familia tipográfica. La declaraba `next/font/google` con su propia
+     variable; ahora que la fuente viene de `@fontsource/poppins` se declara
+     aquí, y `tailwind.config.ts` la sigue leyendo igual. */
+  --font-poppins: 'Poppins';
+
+  /* Paleta oficial de Manto */
+  --color-canvas: #EDEFF2;        /* Ground  */
+  --color-surface: #FFFFFF;
+  --color-navy: #0A1C34;          /* Ink     */
+  --color-navy-muted: #4A5A6F;    /* texto secundario */
+  --color-border: #DCE1E7;        /* Línea   */
+  --color-orange-brand: #CF5224;  /* Accent  */
+  --color-orange-cta: #CF5224;
+  --color-orange-hover: #B83E1A;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  color-scheme: light;
+}
+
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-navy);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+::selection {
+  background-color: rgba(207, 82, 36, 0.18);
+  color: #0A1C34;
+}
+
+/* Custom minimal light scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #E7EBF0;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #C3CBD6;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #8E9BAC;
+}
+
+/* Accessible focus ring */
+:focus-visible {
+  outline: 2px solid #CF5224;
+  outline-offset: 2px;
+}
+
+/* Reticle pulsing for camera */
+@keyframes reticleScan {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+
+.camera-scanner-line {
+  animation: reticleScan 2.5s ease-in-out infinite;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,91 @@
+# ==============================================================================
+# Manto 2.0 - Production Reverse Proxy Configuration (Caddy 2)
+# Handles Automated Let's Encrypt SSL/TLS, OWASP Headers, and Layer 7 Routing
+# ==============================================================================
+
+{
+    # ACME registration email for automatic TLS certificate renewal
+    email {$ACME_EMAIL:ops@manto.com.co}
+
+    # Disable local admin API port in production
+    admin off
+
+    # Global log settings
+    log {
+        output stdout
+        format json
+        level INFO
+    }
+}
+
+{$DOMAIN_NAME:localhost} {
+    # --------------------------------------------------------------------------
+    # Compression: modern zstd and standard gzip
+    # --------------------------------------------------------------------------
+    encode zstd gzip
+
+    # --------------------------------------------------------------------------
+    # OWASP & Colombian Data Protection (Ley 1581) Security Headers
+    # --------------------------------------------------------------------------
+    header {
+        # Strict-Transport-Security (HSTS): Enforce TLS 1.3 / HTTPS for 1 year
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+
+        # Prevent MIME-type sniffing
+        X-Content-Type-Options "nosniff"
+
+        # Clickjacking mitigation
+        X-Frame-Options "DENY"
+
+        # Referrer policy to avoid leaking PII via query params (Ley 1581)
+        Referrer-Policy "strict-origin-when-cross-origin"
+
+        # Restrict browser APIs; camera permitted for live photo pet verification
+        Permissions-Policy "camera=(self), geolocation=(), microphone=(), payment=(self)"
+
+        # Content Security Policy (strict, allowing MercadoPago and Google Fonts)
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://sdk.mercadopago.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://api.mercadopago.com; frame-src https://www.mercadopago.com.co https://sdk.mercadopago.com;"
+
+        # Remove server identity signatures
+        -Server
+        -X-Powered-By
+    }
+
+    # --------------------------------------------------------------------------
+    # Routing: Backend API endpoints (/v1/*, /api/*, /health)
+    # --------------------------------------------------------------------------
+    @api {
+        path /v1/*
+        path /api/*
+        path /health
+    }
+    handle @api {
+        # Support base64 camera photos and invoice PDFs up to 25MB
+        request_body {
+            max_size 25MB
+        }
+
+        reverse_proxy backend:3003 {
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            header_up Host {host}
+
+            # Upstream health check
+            health_uri /health
+            health_interval 15s
+            health_timeout 3s
+            health_status 200
+        }
+    }
+
+    # --------------------------------------------------------------------------
+    # Routing: Next.js Standalone Frontend (All other routes)
+    # --------------------------------------------------------------------------
+    handle {
+        reverse_proxy frontend:3002 {
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            header_up Host {host}
+        }
+    }
+}

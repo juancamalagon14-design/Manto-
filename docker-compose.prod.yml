@@ -1,0 +1,165 @@
+# ==============================================================================
+# Manto 2.0 - Production Docker Compose for VPS Deployment
+# Services: PostgreSQL 16 Alpine, Backend NestJS, Frontend Next.js 14, Caddy SSL
+# ==============================================================================
+
+name: manto-production
+
+services:
+  # ----------------------------------------------------------------------------
+  # Database: PostgreSQL 16 Alpine
+  # Isolated in internal Docker network with persistent Docker volume
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: manto-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DATABASE_USER:-manto_app}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD must be defined in .env}
+      POSTGRES_DB: ${DATABASE_NAME:-manto_db}
+      POSTGRES_INITDB_ARGS: '--locale=C --encoding=UTF8'
+    volumes:
+      - manto_postgres_data:/var/lib/postgresql/data
+    networks:
+      - manto-net
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DATABASE_USER:-manto_app} -d ${DATABASE_NAME:-manto_db}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+
+  # ----------------------------------------------------------------------------
+  # Backend: NestJS 10 (Node.js 20 Alpine Multi-Stage)
+  # Executes under unprivileged 'node' user on port 3003
+  # ----------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: manto-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3003
+      DATABASE_URL: postgresql://${DATABASE_USER:-manto_app}:${DATABASE_PASSWORD}@postgres:5432/${DATABASE_NAME:-manto_db}
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: ${DATABASE_USER:-manto_app}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      DATABASE_NAME: ${DATABASE_NAME:-manto_db}
+      DATABASE_SSL: 'false'
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-20}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be defined in .env}
+      MERCADOPAGO_ACCESS_TOKEN: ${MERCADOPAGO_ACCESS_TOKEN:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    networks:
+      - manto-net
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:3003/health']
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+
+  # ----------------------------------------------------------------------------
+  # Frontend: Next.js 14 Standalone (Node.js 20 Alpine Multi-Stage)
+  # Executes under unprivileged 'nextjs' user on port 3002
+  # ----------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL:-}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
+        NEXT_PUBLIC_APP_ENV: production
+    container_name: manto-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+      HOSTNAME: '0.0.0.0'
+      NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL:-}
+    networks:
+      - manto-net
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:3002/']
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ----------------------------------------------------------------------------
+  # Reverse Proxy: Caddy 2 (Alpine)
+  # Automated Let's Encrypt TLS 1.3, OWASP Headers, Layer 7 Path Routing
+  # ----------------------------------------------------------------------------
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: manto-proxy
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    environment:
+      DOMAIN_NAME: ${DOMAIN_NAME:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-ops@manto.com.co}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    networks:
+      - manto-net
+    healthcheck:
+      test: ['CMD', 'caddy', 'version']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+# ------------------------------------------------------------------------------
+# Persistent Volumes Definition
+# ------------------------------------------------------------------------------
+volumes:
+  manto_postgres_data:
+    name: manto_postgres_data
+  caddy_data:
+    name: caddy_data
+  caddy_config:
+    name: caddy_config
+
+# ------------------------------------------------------------------------------
+# Isolated Bridge Network
+# ------------------------------------------------------------------------------
+networks:
+  manto-net:
+    name: manto-net
+    driver: bridge

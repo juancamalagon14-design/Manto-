@@ -1,0 +1,1194 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Manto 2.0 — Claims & Reimbursements Engine API (Sué ⚡)",
+    "description": "Especificación canónica Contract-First para el ciclo de vida de siniestros, triaje pericial veterinario, liquidación actuarial determinista y dispersión interoperable Bre-B del Banco de la República.\n\n### Doctrinas Inquebrantables de Manto 2.0:\n1. **La IA NUNCA calcula primas ni aprueba siniestros:** Gemini actúa exclusivamente como sensor de extracción estructurada (OCR DIAN y Anamnesis de Epicrisis). La liquidación es 100% determinista en servidor.\n2. **Tope de Bajo Riesgo STP: Exactamente $200.000 COP:** Reclamos netos $\\le \\$200.000$ COP sin alertas se dispersan en 3 a 5 minutos vía Bre-B. Reclamos $> \\$200.000$ COP pasan forzosamente a Autenticación Pericial Médica (SCR-14) con SLA garantizado $< 24$ horas hábiles.\n3. **Historia Clínica Obligatoria:** No existe trámite de reembolso sin historia clínica o epicrisis médica veterinaria formal.\n4. **Dinero en COP Tipado Estricto:** Moneda oficial colombiana representada como enteros sin decimales (`int64`), CERO flotantes.\n5. **Habeas Data (Ley 1581 de 2012) y RCE 50 SMLMV (Ley 1801 de 2016):** Columnas dedicadas y auditables para datos personales y amparo mandatorio de 50 SMLMV para razas de manejo especial.",
+    "version": "2.0.0",
+    "contact": {
+      "name": "Manto Insurtech Architecture Team",
+      "url": "https://manto.co",
+      "email": "arquitectura@manto.co"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3003",
+      "description": "Servidor Local de Desarrollo"
+    },
+    {
+      "url": "https://api.manto.co",
+      "description": "Servidor de Producción (Bogotá, Colombia)"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Claims",
+      "description": "Radicación, trazabilidad, triaje y liquidación de siniestros de reembolso veterinario (Sué ⚡)"
+    },
+    {
+      "name": "Adjuster Console",
+      "description": "Operaciones periciales de mesa médica veterinaria (SCR-14)"
+    },
+    {
+      "name": "Documents Vault",
+      "description": "Bóveda de almacenamiento seguro y generación de URLs prefirmadas R2/S3"
+    }
+  ],
+  "paths": {
+    "/v1/claims": {
+      "post": {
+        "tags": ["Claims"],
+        "summary": "Radicación formal de siniestro (FNOL)",
+        "description": "Recibe la reclamación veterinaria del asegurado. Valida vigencia de póliza, carencias contractuales, duplicidad de CUFE DIAN, Historia Clínica obligatoria y llave Bre-B. Ejecuta el motor determinista STP y, si el neto es $\\le \\$200.000$ COP sin alertas, dispersa en 3 a 5 minutos a través de Bre-B.",
+        "operationId": "submitClaim",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitClaimRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Siniestro radicado exitosamente y evaluado determinísticamente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimEntityResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error en datos de entrada, carencia no superada o falta de soporte obligatorio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Póliza asociada no encontrada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Inconsistencia de negocio (póliza inactiva o falta de deducible)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": ["Claims"],
+        "summary": "Listado general de siniestros",
+        "description": "Retorna el inventario completo de siniestros para auditoría, tablero gerencial y panel pericial de SCR-14.",
+        "operationId": "listClaims",
+        "responses": {
+          "200": {
+            "description": "Listado obtenido correctamente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ClaimEntityResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/claims/{id}": {
+      "get": {
+        "tags": ["Claims"],
+        "summary": "Consulta detallada de un siniestro",
+        "description": "Obtiene la entidad completa del siniestro, incluyendo desglose actuarial, factura DIAN, anamnesis clínica y estatus de dispersión Bre-B.",
+        "operationId": "getClaimById",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Identificador UUID del siniestro",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Expediente del siniestro recuperado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimEntityResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Siniestro no encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/claims/{id}/live-status": {
+      "get": {
+        "tags": ["Claims"],
+        "summary": "Consulta de estatus en vivo y línea de tiempo (SCR-13)",
+        "description": "Alimenta el componente LiveClaimTracker con los 4 hitos canónicos: Radicación, Triage y Cruce Clínico IA, Decisión y Liquidación, y Dispersión de Fondos Bre-B.",
+        "operationId": "getClaimLiveStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Identificador UUID del siniestro",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Estatus en vivo y línea de tiempo transaccional",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveClaimStatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Siniestro no encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/claims/{id}/adjudicate": {
+      "post": {
+        "tags": ["Adjuster Console"],
+        "summary": "Adjudicación pericial médica veterinaria (SCR-14)",
+        "description": "Permite al perito veterinario en consola humana aprobar (opcionalmente ajustando el monto liquidado) o denegar un siniestro en estado MANUAL_AUDIT_REQUIRED / HUMAN_REVIEW. Al aprobar, se ejecuta automáticamente la dispersión instantánea por Bre-B.",
+        "operationId": "adjudicateClaim",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Identificador UUID del siniestro",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdjudicateClaimRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Siniestro adjudicado exitosamente y pago Bre-B emitido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimEntityResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "El siniestro no se encuentra en un estado adjudicable o datos inválidos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Siniestro no encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/claims/documents/presigned-url": {
+      "post": {
+        "tags": ["Documents Vault"],
+        "summary": "Generar URL prefirmada para carga de soportes",
+        "description": "Genera una URL segura PUT (vigencia 15 min) para Cloudflare R2 / AWS S3. Valida MIME types (.pdf, .jpg, .png), tamaño máximo de 25MB y checksum SHA-256.",
+        "operationId": "generatePresignedUrl",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GeneratePresignedUrlRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "URL prefirmada generada con éxito",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PresignedUrlResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Extensión, MIME type, tamaño o checksum no permitidos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/claims/documents/{id}": {
+      "get": {
+        "tags": ["Documents Vault"],
+        "summary": "Consulta de metadatos de un soporte documental",
+        "operationId": "getDocumentById",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Identificador UUID del documento",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Metadatos del documento recuperados",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimDocumentResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Documento no encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/claims/documents/{id}/confirm": {
+      "post": {
+        "tags": ["Documents Vault"],
+        "summary": "Confirmar carga exitosa de soporte en bucket",
+        "operationId": "confirmDocumentUpload",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Identificador UUID del documento",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Documento confirmado y disponible para vinculación a siniestro",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimDocumentResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Documento no encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BreBKey": {
+        "type": "object",
+        "required": ["type", "value"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["PHONE_NUMBER", "NATIONAL_ID", "EMAIL", "ALPHANUMERIC"],
+            "description": "Tipo de identificador registrado en el directorio interoperable Bre-B"
+          },
+          "value": {
+            "type": "string",
+            "description": "Valor de la llave Bre-B (ej: número de celular de 10 dígitos o cédula colombiana)",
+            "example": "3001234567"
+          }
+        }
+      },
+      "DianInvoiceItem": {
+        "type": "object",
+        "required": ["description", "amountCop", "isCovered", "category"],
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "Descripción del procedimiento, medicamento o insumo médico",
+            "example": "Ecografía abdominal veterinaria y medicación"
+          },
+          "amountCop": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "description": "Valor del ítem en pesos colombianos (sin decimales, tipado estricto)",
+            "example": 140000
+          },
+          "isCovered": {
+            "type": "boolean",
+            "description": "Indicador de cobertura según el condicionado contractual",
+            "example": true
+          },
+          "category": {
+            "type": "string",
+            "description": "Categoría clínica (ej: DIAGNOSTIC, CLINIC, PHARMACY, SURGERY)",
+            "example": "DIAGNOSTIC"
+          }
+        }
+      },
+      "DianInvoice": {
+        "type": "object",
+        "required": ["invoiceNumber", "providerNit", "providerName", "dianCufe", "issueDate", "items", "totalInvoiceCop", "ocrConfidence"],
+        "properties": {
+          "invoiceNumber": {
+            "type": "string",
+            "description": "Número de factura electrónica oficial con prefijo DIAN",
+            "example": "FE-90124-B"
+          },
+          "providerNit": {
+            "type": "string",
+            "description": "NIT de la clínica o prestador de salud veterinaria",
+            "example": "901234567-8"
+          },
+          "providerName": {
+            "type": "string",
+            "description": "Razón social del establecimiento veterinario",
+            "example": "Hospital Veterinario de Antioquia S.A.S."
+          },
+          "dianCufe": {
+            "type": "string",
+            "description": "Código Único de Factura Electrónica (CUFE) generado por la DIAN",
+            "example": "fe87a912bc09e451ffab34901234567890abcdef"
+          },
+          "issueDate": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Fecha de emisión fiscal de la factura",
+            "example": "2026-09-24T10:30:00Z"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DianInvoiceItem"
+            },
+            "description": "Líneas de detalle de la factura extraídas mediante OCR"
+          },
+          "totalInvoiceCop": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "Valor total bruto facturado en pesos colombianos",
+            "example": 180000
+          },
+          "ocrConfidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Puntaje de confianza de la extracción visual por IA",
+            "example": 0.96
+          }
+        }
+      },
+      "ClinicalRecord": {
+        "type": "object",
+        "required": ["presumptiveDiagnosis", "symptomsOnsetDate"],
+        "properties": {
+          "presumptiveDiagnosis": {
+            "type": "string",
+            "description": "Diagnóstico presuntivo o definitivo emitido por el médico veterinario tratante",
+            "example": "Gastroenteritis aguda por ingestión de cuerpo extraño leve"
+          },
+          "symptomsOnsetDate": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Fecha y hora de inicio de síntomas reportada en la historia clínica",
+            "example": "2026-09-24T06:00:00Z"
+          },
+          "microchipNumber": {
+            "type": "string",
+            "description": "Número de microchip registrado en la historia clínica",
+            "example": "977200009876543"
+          },
+          "veterinarianName": {
+            "type": "string",
+            "description": "Nombre completo del médico veterinario tratante",
+            "example": "Dr. Juan Camilo Quintero"
+          },
+          "veterinarianLicense": {
+            "type": "string",
+            "description": "Número de tarjeta o matrícula profesional (COMVEZCOL)",
+            "example": "MP-19842"
+          },
+          "hasPreExistingSigns": {
+            "type": "boolean",
+            "description": "Indica si el informe clínico evidencia signos o patologías previas a la vigencia",
+            "example": false
+          },
+          "preExistingNotes": {
+            "type": "string",
+            "description": "Observaciones periciales sobre posibles preexistencias"
+          },
+          "clinicalSummary": {
+            "type": "string",
+            "description": "Resumen consolidado de la anamnesis y evolución",
+            "example": "Paciente canino acude por vómito recurrente. Sin antecedentes patológicos."
+          },
+          "ocrConfidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Confianza de extracción OCR de la historia clínica",
+            "example": 0.95
+          }
+        }
+      },
+      "SubmitClaimRequest": {
+        "type": "object",
+        "required": ["policyId", "incidentType", "incidentDate", "description", "dianInvoice", "clinicalRecord", "breBKey", "eligibleExpensesCop"],
+        "properties": {
+          "policyId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Identificador de la póliza activa",
+            "example": "a3b8cd12-789a-4bc1-9012-123456789abc"
+          },
+          "incidentType": {
+            "type": "string",
+            "enum": [
+              "ACCIDENT",
+              "COMMON_ILLNESS",
+              "EMERGENCY_CONSULTATION",
+              "CIVIL_LIABILITY",
+              "CIVIL_LIABILITY_1801",
+              "PREVENTIVE_WELLNESS"
+            ],
+            "description": "Tipo de evento indemnizable según el portafolio actuarial",
+            "example": "COMMON_ILLNESS"
+          },
+          "incidentDate": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Fecha y hora en que ocurrió el siniestro (no puede ser futura)",
+            "example": "2026-09-24T08:00:00Z"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 5,
+            "description": "Relato claro y empático del asegurado sobre lo sucedido",
+            "example": "Max presentó vómito repentino y decaimiento después del paseo matutino."
+          },
+          "dianInvoice": {
+            "$ref": "#/components/schemas/DianInvoice"
+          },
+          "clinicalRecord": {
+            "$ref": "#/components/schemas/ClinicalRecord"
+          },
+          "breBKey": {
+            "$ref": "#/components/schemas/BreBKey"
+          },
+          "eligibleExpensesCop": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "Total de gastos elegibles declarados en pesos colombianos",
+            "example": 180000
+          },
+          "claimedAmountCop": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 10000,
+            "maximum": 100000000,
+            "description": "Valor total reclamado para liquidación",
+            "example": 180000
+          },
+          "documentIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Identificadores de documentos previamente cargados en la bóveda"
+          }
+        }
+      },
+      "StpEvaluationResult": {
+        "type": "object",
+        "required": ["eligibleForStp", "tierLimitCop", "rejectionReasons", "fraudRiskScore"],
+        "properties": {
+          "eligibleForStp": {
+            "type": "boolean",
+            "description": "Indica si el siniestro califica para liquidación inmediata vía STP",
+            "example": true
+          },
+          "coverageCode": {
+            "type": "string",
+            "example": "COMMON_ILLNESSES"
+          },
+          "tierLimitCop": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Tope máximo individual de aprobación STP para este caso en COP",
+            "example": 200000
+          },
+          "petRiskMultiplier": {
+            "type": "number",
+            "description": "Factor de ponderación biológica y actuarial de la mascota",
+            "example": 1.05
+          },
+          "rejectionReasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Causales de objeción o razones de pase a mesa médica humana",
+            "example": []
+          },
+          "fraudRiskScore": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Score de riesgo antifraude calculado determinísticamente",
+            "example": 0.05
+          },
+          "slaCategory": {
+            "type": "string",
+            "enum": ["FAST_TRACK_MINUTES", "EXPEDITED_AUDIT_24H", "SPECIALIZED_REVIEW_48H"],
+            "example": "FAST_TRACK_MINUTES"
+          },
+          "slaResolutionEstimatedTime": {
+            "type": "string",
+            "example": "3 a 5 minutos (Bre-B Inmediato)"
+          }
+        }
+      },
+      "ClaimEntityResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "claimNumber",
+          "policyId",
+          "policyNumber",
+          "status",
+          "incidentType",
+          "incidentDate",
+          "eligibleExpensesCop",
+          "deductibleCop",
+          "netReimbursementCop",
+          "submittedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "4a719c23-5e88-4e12-8901-abcdef012345"
+          },
+          "claimNumber": {
+            "type": "string",
+            "description": "Identificador formal del siniestro (CLM-YYYY-XXXXXX)",
+            "example": "CLM-2026-F41A99"
+          },
+          "policyId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "policyNumber": {
+            "type": "string",
+            "example": "MTO-PET-2026-887412"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "SUBMITTED",
+              "ANALYZING_DOCUMENTS",
+              "FAST_TRACK_APPROVED",
+              "MANUAL_AUDIT_REQUIRED",
+              "STP_APPROVED",
+              "HUMAN_REVIEW",
+              "APPROVED_BY_ADJUSTER",
+              "REJECTED",
+              "INFO_REQUESTED",
+              "PAYMENT_PENDING",
+              "PAID",
+              "DISPUTED"
+            ],
+            "description": "Estado del siniestro en la máquina de estados finita de Sué ⚡",
+            "example": "PAID"
+          },
+          "incidentType": {
+            "type": "string",
+            "example": "COMMON_ILLNESS"
+          },
+          "incidentDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": "string"
+          },
+          "dianInvoice": {
+            "$ref": "#/components/schemas/DianInvoice"
+          },
+          "clinicalRecord": {
+            "$ref": "#/components/schemas/ClinicalRecord"
+          },
+          "breBKey": {
+            "$ref": "#/components/schemas/BreBKey"
+          },
+          "eligibleExpensesCop": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Gastos elegibles en COP",
+            "example": 180000
+          },
+          "deductibleCop": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Tu aporte por evento (deducible copago) en COP",
+            "example": 27000
+          },
+          "netReimbursementCop": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Monto neto a transferir al asegurado en COP",
+            "example": 153000
+          },
+          "triageRoute": {
+            "type": "string",
+            "enum": ["FAST_TRACK", "MANUAL_AUDIT"],
+            "example": "FAST_TRACK"
+          },
+          "triageReasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "stpEvaluation": {
+            "$ref": "#/components/schemas/StpEvaluationResult"
+          },
+          "slaCategory": {
+            "type": "string",
+            "example": "FAST_TRACK_MINUTES"
+          },
+          "slaResolutionEstimatedTime": {
+            "type": "string",
+            "example": "3 a 5 minutos (Bre-B Inmediato)"
+          },
+          "disbursementId": {
+            "type": "string",
+            "example": "disb_breb_991823"
+          },
+          "disbursementTrackingCode": {
+            "type": "string",
+            "description": "Código oficial de rastreo bancario Bre-B",
+            "example": "BREB-2026-F9812A04"
+          },
+          "financialInstitution": {
+            "type": "string",
+            "example": "Bancolombia"
+          },
+          "submittedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "adjudicatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "adjudicatedBy": {
+            "type": "string",
+            "example": "STP_ENGINE_AUTOMATED"
+          },
+          "rejectionReason": {
+            "type": "string"
+          },
+          "auditNotes": {
+            "type": "string"
+          }
+        }
+      },
+      "TimelineMilestone": {
+        "type": "object",
+        "required": ["stepKey", "label", "description", "status"],
+        "properties": {
+          "stepKey": {
+            "type": "string",
+            "enum": ["SUBMITTED", "ANALYSIS", "DECISION", "PAYMENT"],
+            "description": "Clave del hito transaccional canónico"
+          },
+          "label": {
+            "type": "string",
+            "description": "Etiqueta empática del hito",
+            "example": "Radicación Recibida"
+          },
+          "description": {
+            "type": "string",
+            "description": "Detalle explicativo y amigable para el asegurado",
+            "example": "Factura DIAN e Historia Clínica validadas correctamente."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["PENDING", "IN_PROGRESS", "COMPLETED", "FAILED"],
+            "example": "COMPLETED"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Marca temporal de culminación del hito"
+          }
+        }
+      },
+      "ClinicalSummary": {
+        "type": "object",
+        "properties": {
+          "symptomsStartDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "diagnosis": {
+            "type": "string"
+          },
+          "preExistingSignsDetected": {
+            "type": "boolean"
+          },
+          "waitingPeriodCompliant": {
+            "type": "boolean"
+          },
+          "microchipMatch": {
+            "type": "boolean",
+            "nullable": true
+          }
+        }
+      },
+      "LiveClaimStatusResponse": {
+        "type": "object",
+        "required": [
+          "claimId",
+          "claimNumber",
+          "policyNumber",
+          "petName",
+          "incidentType",
+          "incidentDate",
+          "status",
+          "claimedAmountCop",
+          "approvedAmountCop",
+          "deductibleCop",
+          "netPayableAmountCop",
+          "timeline",
+          "requiresActionFromUser",
+          "updatedAt"
+        ],
+        "properties": {
+          "claimId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "claimNumber": {
+            "type": "string",
+            "example": "CLM-2026-F41A99"
+          },
+          "policyNumber": {
+            "type": "string",
+            "example": "MTO-PET-2026-887412"
+          },
+          "petName": {
+            "type": "string",
+            "example": "Max"
+          },
+          "incidentType": {
+            "type": "string",
+            "example": "COMMON_ILLNESS"
+          },
+          "incidentDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string",
+            "example": "PAID"
+          },
+          "triageRoute": {
+            "type": "string",
+            "enum": ["FAST_TRACK", "MANUAL_AUDIT"]
+          },
+          "claimedAmountCop": {
+            "type": "integer",
+            "format": "int64",
+            "example": 180000
+          },
+          "approvedAmountCop": {
+            "type": "integer",
+            "format": "int64",
+            "example": 180000
+          },
+          "deductibleCop": {
+            "type": "integer",
+            "format": "int64",
+            "example": 27000
+          },
+          "netPayableAmountCop": {
+            "type": "integer",
+            "format": "int64",
+            "example": 153000
+          },
+          "payout": {
+            "type": "object",
+            "properties": {
+              "channel": {
+                "type": "string",
+                "example": "BRE_B"
+              },
+              "accountMasked": {
+                "type": "string",
+                "example": "****5678"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["SETTLED", "PROCESSING", "FAILED"],
+                "example": "SETTLED"
+              },
+              "settledAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "trackingCode": {
+                "type": "string",
+                "example": "BREB-2026-F9812A04"
+              },
+              "financialInstitution": {
+                "type": "string",
+                "example": "Bancolombia"
+              }
+            }
+          },
+          "timeline": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TimelineMilestone"
+            }
+          },
+          "slaCategory": {
+            "type": "string",
+            "example": "FAST_TRACK_MINUTES"
+          },
+          "slaResolutionEstimatedTime": {
+            "type": "string",
+            "example": "3 a 5 minutos (Bre-B Inmediato)"
+          },
+          "clinicalSummary": {
+            "$ref": "#/components/schemas/ClinicalSummary"
+          },
+          "requiresActionFromUser": {
+            "type": "boolean",
+            "example": false
+          },
+          "userActionMessage": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AdjudicateClaimRequest": {
+        "type": "object",
+        "required": ["decision"],
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": ["APPROVED", "REJECTED"],
+            "description": "Dictamen pericial médico"
+          },
+          "approvedAmountCop": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "description": "Monto neto en COP ajustado y autorizado por el perito para desembolso",
+            "example": 350000
+          },
+          "adjusterNotes": {
+            "type": "string",
+            "description": "Justificación clínica o soporte de la liquidación",
+            "example": "Se autorizan los honorarios quirúrgicos y fármacos postoperatorios según arancel."
+          },
+          "adjusterId": {
+            "type": "string",
+            "description": "Identificador o matrícula profesional del perito auditor",
+            "example": "VET-AUDITOR-DR-MENDOZA"
+          },
+          "rejectionReason": {
+            "type": "string",
+            "description": "Causal explícita y motivada en caso de rechazo del siniestro",
+            "example": "Patología preexistente con signos clínicos documentados previos a la contratación."
+          }
+        }
+      },
+      "GeneratePresignedUrlRequest": {
+        "type": "object",
+        "required": ["fileName", "mimeType", "fileSizeBytes", "documentType", "sha256Checksum"],
+        "properties": {
+          "fileName": {
+            "type": "string",
+            "description": "Nombre original del archivo",
+            "example": "factura_dian_fe1002.pdf"
+          },
+          "mimeType": {
+            "type": "string",
+            "enum": ["image/jpeg", "image/png", "application/pdf"],
+            "description": "MIME type seguro del archivo"
+          },
+          "fileSizeBytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1024,
+            "maximum": 26214400,
+            "description": "Peso del archivo en bytes (mínimo 1KB, máximo 25MB)"
+          },
+          "documentType": {
+            "type": "string",
+            "enum": [
+              "DIAN_INVOICE",
+              "MEDICAL_HISTORY_EPICRISIS",
+              "LAB_RESULTS",
+              "PRESCRIPTION",
+              "INCIDENT_PHOTO",
+              "DAMAGE_EVIDENCE",
+              "INCIDENT_PHOTOGRAPH",
+              "OTHER"
+            ]
+          },
+          "sha256Checksum": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "Huella criptográfica SHA-256 de 64 caracteres en hexadecimal",
+            "example": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "claimId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sessionId": {
+            "type": "string"
+          }
+        }
+      },
+      "PresignedUrlResponse": {
+        "type": "object",
+        "required": ["documentId", "uploadUrl", "s3Key", "expiresInSeconds", "requiredHeaders"],
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "uploadUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL prefirmada PUT para carga directa a bucket S3/R2"
+          },
+          "s3Key": {
+            "type": "string"
+          },
+          "expiresInSeconds": {
+            "type": "integer",
+            "example": 900
+          },
+          "requiredHeaders": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ClaimDocumentResponse": {
+        "type": "object",
+        "required": ["id", "userId", "documentType", "s3Bucket", "s3Key", "fileName", "mimeType", "fileSizeBytes", "sha256Checksum", "uploadStatus", "ocrStatus", "createdAt"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "claimId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "documentType": {
+            "type": "string"
+          },
+          "s3Bucket": {
+            "type": "string"
+          },
+          "s3Key": {
+            "type": "string"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "fileSizeBytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sha256Checksum": {
+            "type": "string"
+          },
+          "uploadStatus": {
+            "type": "string",
+            "enum": ["PENDING", "UPLOADED", "REJECTED"]
+          },
+          "ocrStatus": {
+            "type": "string",
+            "enum": ["PENDING", "PROCESSING", "EXTRACTED", "FAILED"]
+          },
+          "ocrConfidence": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["statusCode", "message", "timestamp", "path"],
+        "properties": {
+          "statusCode": {
+            "type": "integer",
+            "example": 400
+          },
+          "message": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "example": "La Historia Clínica o Epicrisis es obligatoria para cualquier trámite de reembolso."
+          },
+          "error": {
+            "type": "string",
+            "example": "Bad Request"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-09-25T14:55:00Z"
+          },
+          "path": {
+            "type": "string",
+            "example": "/v1/claims"
+          }
+        }
+      }
+    }
+  }
+}

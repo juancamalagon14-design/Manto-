@@ -1,0 +1,42 @@
+# Base de datos de desarrollo para Manto 2.0.
+#
+# Es la forma más corta de tener PostgreSQL 16 en Windows sin instalarlo:
+#
+#   docker compose up -d
+#
+# Y para apagarla conservando los datos:
+#
+#   docker compose stop
+#
+# `docker compose down -v` borra el volumen y con él todas las cotizaciones y
+# pólizas de desarrollo. Sin `-v` los datos sobreviven.
+#
+# La versión 16 no es casual: es la que se usará en Azure Database for
+# PostgreSQL, y conviene que el desarrollo corra sobre el mismo motor.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: manto-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: manto_app
+      POSTGRES_PASSWORD: manto_secure_dev_password
+      POSTGRES_DB: manto_db
+      # Acelera el arranque y no importa en desarrollo.
+      POSTGRES_INITDB_ARGS: '--locale=C --encoding=UTF8'
+    ports:
+      # 5433 en el host para no chocar con un Postgres ya instalado.
+      - '5433:5432'
+    volumes:
+      - manto_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # El backend puede arrancar en cuanto esto pase.
+      test: ['CMD-SHELL', 'pg_isready -U manto_app -d manto_db']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  manto_pgdata:
+    name: manto_pgdata

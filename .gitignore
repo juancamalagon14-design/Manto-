@@ -1,0 +1,37 @@
+# Secretos. `.env` lleva la contraseña de la base y los tokens de MercadoPago,
+# Gemini y Bre-B: nunca al repositorio. La plantilla sin valores es
+# `backend/.env.example`.
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Dependencias y compilados
+node_modules/
+dist/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+
+# Datos de desarrollo
+pgdata/
+
+# Editores y sistema
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Registros
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# Archivos que quedaron duplicados por descargas del navegador
+*-1.ts
+*-1.tsx
+*-1.json
+* copy.*
