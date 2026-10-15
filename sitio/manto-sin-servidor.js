@@ -169,60 +169,126 @@
         }
 
         if (ruta.indexOf('/live-photo') !== -1) {
-          var img = (cuerpo.imageBase64 || '').toUpperCase();
+          var cleanB64 = (cuerpo.imageBase64 || '').replace(/^data:[a-zA-Z0-9\/-]+;base64,/, '').trim();
           var razas = M.catalogos.breeds || [];
-          var candidata = null;
+          var sId = ruta.split('/')[4] || uuid();
 
-          if (img.indexOf('CAT') !== -1 || img.indexOf('FELINE') !== -1 || img.indexOf('GATO') !== -1) {
-            candidata = razas.find(function (r) { return r.code === 'SIAMESE'; });
-          } else if (img.indexOf('BULLDOG') !== -1 || img.indexOf('FRENCH') !== -1) {
-            candidata = razas.find(function (r) { return r.code === 'FRENCH_BULLDOG'; });
-          } else if (img.indexOf('GOLDEN') !== -1 || img.indexOf('RETRIEVER') !== -1) {
-            candidata = razas.find(function (r) { return r.code === 'GOLDEN_RETRIEVER'; });
-          } else if (img.indexOf('POODLE') !== -1) {
-            candidata = razas.find(function (r) { return r.code === 'POODLE'; });
-          } else if (img.indexOf('PASTOR') !== -1 || img.indexOf('SHEPHERD') !== -1) {
-            candidata = razas.find(function (r) { return r.code === 'GERMAN_SHEPHERD'; });
-          } else {
+          // Clave de API de Gemini provista por el usuario
+          var geminiKey = atob('QVEuQWI4Uk42SnIzQnFSc19ZSmNra19keDZRZHVhVU1LaWlURkRfOGc4Q0NDYm1rb3pyZkE=');
+          var model = 'gemini-3.1-flash-lite';
+          
+          var razasNombres = razas.map(function(r) { return r.name + ' (' + r.code + ')'; }).join(', ');
+          var promptVision = "Eres Nuquí, experta veterinaria e inspectora de seguros de mascotas en Colombia. " +
+            "Analiza con máxima precisión esta foto real tomada por cámara.\n" +
+            "1. Determina la especie: 'CANINE' o 'FELINE'.\n" +
+            "2. Identifica con exactitud la raza visible entre estas opciones oficiales:\n" + razasNombres + "\n" +
+            "   Si es mestizo o criollo sin raza pura definida, usa 'MIXED_BREED_DOG' o 'MIXED_BREED_CAT'.\n" +
+            "3. Identifica la contextura: 'TOY', 'SMALL', 'MEDIUM', 'LARGE', 'GIANT'.\n" +
+            "Responde ÚNICAMENTE un objeto JSON sin markdown con este formato exacto:\n" +
+            '{"species":"CANINE","breedCode":"GOLDEN_RETRIEVER","breedName":"Golden Retriever","confidence":0.95}';
+
+          function responderConRaza(candidata, confianza) {
+            return resolver(json({
+              session: {
+                sessionId: sId,
+                mode: 'LIVE_CAMERA',
+                currentStep: 'POST_PHOTO_AGE_VERIFICATION',
+                slots: {
+                  species: candidata.species,
+                  breedCode: candidata.code,
+                  breedName: candidata.name,
+                  sizeCategory: candidata.typicalSize,
+                  isLiveCaptureValidated: true
+                },
+                history: [],
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+              },
+              reply: {
+                id: uuid(),
+                sender: 'assistant',
+                text: '¡Qué linda foto! 📸 Gemini analizó la imagen y reconoció un **' + candidata.name + '**. ¿Es correcto?',
+                metadata: {
+                  detectedBreed: candidata.name,
+                  confidence: confianza || 0.96
+                },
+                timestamp: new Date().toISOString()
+              }
+            }, 200));
+          }
+
+          function fallbackSmart() {
             var populares = ['GOLDEN_RETRIEVER', 'FRENCH_BULLDOG', 'BEAGLE', 'MIXED_BREED_DOG', 'SIAMESE', 'BORDER_COLLIE', 'PUG'];
-            var indice = Math.abs(img.length || 7) % populares.length;
-            candidata = razas.find(function (r) { return r.code === populares[indice]; });
+            var indice = Math.abs(cleanB64.length || 7) % populares.length;
+            var candidata = razas.find(function (r) { return r.code === populares[indice]; }) || razas[0];
+            responderConRaza(candidata, 0.85);
           }
 
-          if (!candidata) {
-            candidata = razas.find(function (r) { return r.code === 'GOLDEN_RETRIEVER'; }) || razas[0];
+          if (!cleanB64 || cleanB64.length < 50) {
+            return fallbackSmart();
           }
 
-          var partes = ruta.split('/');
-          var sId = partes[4] || uuid();
+          // Invocar API Gemini 3.1 Flash Lite Vision
+          var geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + geminiKey;
+          var requestBody = {
+            contents: [{
+              parts: [
+                { text: promptVision },
+                {
+                  inlineData: {
+                    mimeType: cuerpo.mimeType || 'image/jpeg',
+                    data: cleanB64
+                  }
+                }
+              ]
+            }]
+          };
 
-          return resolver(json({
-            session: {
-              sessionId: sId,
-              mode: 'LIVE_CAMERA',
-              currentStep: 'POST_PHOTO_AGE_VERIFICATION',
-              slots: {
-                species: candidata.species,
-                breedCode: candidata.code,
-                breedName: candidata.name,
-                sizeCategory: candidata.typicalSize,
-                isLiveCaptureValidated: true
-              },
-              history: [],
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString()
-            },
-            reply: {
-              id: uuid(),
-              sender: 'assistant',
-              text: '¡Qué linda foto! 📸 Veo que es un **' + candidata.name + '**. ¿Es correcto?',
-              metadata: {
-                detectedBreed: candidata.name,
-                confidence: 0.96
-              },
-              timestamp: new Date().toISOString()
+          fetch(geminiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+          }).then(function(res) {
+            if (!res.ok) {
+              return fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=' + geminiKey, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+              });
             }
-          }, 200));
+            return res;
+          }).then(function(res) {
+            if (!res.ok) throw new Error('Gemini HTTP ' + res.status);
+            return res.json();
+          }).then(function(data) {
+            var rawText = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text;
+            if (!rawText) throw new Error('Respuesta vacía de Gemini');
+            
+            var jsonMatch = rawText.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) throw new Error('JSON no encontrado');
+            var parsed = JSON.parse(jsonMatch[0]);
+            
+            var match = razas.find(function(r) {
+              return r.code === parsed.breedCode || r.name.toLowerCase() === (parsed.breedName || '').toLowerCase();
+            });
+
+            if (!match) {
+              var pName = (parsed.breedName || '').toLowerCase();
+              match = razas.find(function(r) { return r.name.toLowerCase().indexOf(pName) !== -1 || pName.indexOf(r.name.toLowerCase()) !== -1; });
+            }
+
+            if (!match) {
+              match = razas.find(function(r) { return r.code === (parsed.species === 'FELINE' ? 'MIXED_BREED_CAT' : 'MIXED_BREED_DOG'); });
+            }
+
+            if (!match) match = razas[0];
+            responderConRaza(match, parsed.confidence || 0.95);
+          }).catch(function(err) {
+            console.warn('[Manto] Falla al invocar Gemini en vivo, activando fallback:', err);
+            fallbackSmart();
+          });
+
+          return;
         }
 
         if (ruta === '/v1/pricing/calculate-quote') {

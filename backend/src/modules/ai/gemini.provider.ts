@@ -816,7 +816,7 @@ export class RealGeminiProvider implements IGeminiProvider {
   private readonly logger = new Logger(RealGeminiProvider.name);
   private readonly mockFallback = new MockGeminiProvider();
   private readonly apiKey: string;
-  private readonly modelLadder = ['gemini-3.5-flash-lite', 'gemini-flash-latest', 'gemini-3.6-flash'];
+  private readonly modelLadder = ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-flash-latest'];
 
   constructor(apiKey: string) {
     this.apiKey = apiKey;
