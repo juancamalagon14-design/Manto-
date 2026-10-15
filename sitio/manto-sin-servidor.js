@@ -142,6 +142,89 @@
       setTimeout(function () {
         if (CATALOGOS[ruta]) return resolver(json(CATALOGOS[ruta]));
 
+        if (ruta === '/v1/ai/chat/start') {
+          var sId = uuid();
+          return resolver(json({
+            session: {
+              sessionId: sId,
+              mode: cuerpo.mode || 'INITIAL_SELECTION',
+              currentStep: 'SELECT_MODE',
+              slots: {},
+              history: [],
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            },
+            welcomeMessage: {
+              id: uuid(),
+              sender: 'assistant',
+              text: '¡Hola! Soy Nuquí, de Manto 🐾. Te ayudo a cotizar el seguro de tu mascota en un par de minutos.',
+              inputType: cuerpo.mode === 'LIVE_CAMERA' ? 'camera_capture' : 'mode_selection',
+              options: [
+                { id: 'MODE_LIVE_CAMERA', label: 'Mandarle una foto', value: 'LIVE_CAMERA', description: 'Reconozco raza y contextura' },
+                { id: 'MODE_GUIDED_CHAT', label: 'Conversemos', value: 'CHAT', description: 'Te hago unas preguntas' }
+              ],
+              timestamp: new Date().toISOString()
+            }
+          }, 201));
+        }
+
+        if (ruta.indexOf('/live-photo') !== -1) {
+          var img = (cuerpo.imageBase64 || '').toUpperCase();
+          var razas = M.catalogos.breeds || [];
+          var candidata = null;
+
+          if (img.indexOf('CAT') !== -1 || img.indexOf('FELINE') !== -1 || img.indexOf('GATO') !== -1) {
+            candidata = razas.find(function (r) { return r.code === 'SIAMESE'; });
+          } else if (img.indexOf('BULLDOG') !== -1 || img.indexOf('FRENCH') !== -1) {
+            candidata = razas.find(function (r) { return r.code === 'FRENCH_BULLDOG'; });
+          } else if (img.indexOf('GOLDEN') !== -1 || img.indexOf('RETRIEVER') !== -1) {
+            candidata = razas.find(function (r) { return r.code === 'GOLDEN_RETRIEVER'; });
+          } else if (img.indexOf('POODLE') !== -1) {
+            candidata = razas.find(function (r) { return r.code === 'POODLE'; });
+          } else if (img.indexOf('PASTOR') !== -1 || img.indexOf('SHEPHERD') !== -1) {
+            candidata = razas.find(function (r) { return r.code === 'GERMAN_SHEPHERD'; });
+          } else {
+            var populares = ['GOLDEN_RETRIEVER', 'FRENCH_BULLDOG', 'BEAGLE', 'MIXED_BREED_DOG', 'SIAMESE', 'BORDER_COLLIE', 'PUG'];
+            var indice = Math.abs(img.length || 7) % populares.length;
+            candidata = razas.find(function (r) { return r.code === populares[indice]; });
+          }
+
+          if (!candidata) {
+            candidata = razas.find(function (r) { return r.code === 'GOLDEN_RETRIEVER'; }) || razas[0];
+          }
+
+          var partes = ruta.split('/');
+          var sId = partes[4] || uuid();
+
+          return resolver(json({
+            session: {
+              sessionId: sId,
+              mode: 'LIVE_CAMERA',
+              currentStep: 'POST_PHOTO_AGE_VERIFICATION',
+              slots: {
+                species: candidata.species,
+                breedCode: candidata.code,
+                breedName: candidata.name,
+                sizeCategory: candidata.typicalSize,
+                isLiveCaptureValidated: true
+              },
+              history: [],
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            },
+            reply: {
+              id: uuid(),
+              sender: 'assistant',
+              text: '¡Qué linda foto! 📸 Veo que es un **' + candidata.name + '**. ¿Es correcto?',
+              metadata: {
+                detectedBreed: candidata.name,
+                confidence: 0.96
+              },
+              timestamp: new Date().toISOString()
+            }
+          }, 200));
+        }
+
         if (ruta === '/v1/pricing/calculate-quote') {
           var r = calcular(cuerpo);
           return resolver(r ? json(r) : problema('No pudimos tarifar con esos datos.', 422));
